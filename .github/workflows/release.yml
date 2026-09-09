@@ -1,0 +1,119 @@
+name: Release
+
+# Triggered by a push to main that changes version.txt (the version source of
+# truth). Bumping version.txt to X.Y.Z creates the tag vX.Y.Z, builds Caddy
+# with this provider, and publishes a GitHub release with the binary.
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - version.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # Full history and tags: git-cliff needs previous tags to scope the
+          # changelog to commits since the last release.
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          ver="$(tr -d '[:space:]' < version.txt)"
+          if [ -z "$ver" ]; then
+            echo "::error::version.txt is empty"
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release $tag already exists; bump version.txt"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists; bump version.txt"
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate go.mod and go.sum
+        run: |
+          go mod tidy
+          test -s go.mod
+          test -s go.sum
+
+      - name: Run tests
+        run: go test -mod=readonly ./...
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy
+        run: |
+          "$(go env GOPATH)/bin/xcaddy" build \
+            --with github.com/SodaWithoutSparkles/caddy-http-acme=.
+
+      - name: Rename binary
+        run: mv caddy "caddy-${{ steps.version.outputs.tag }}-linux-amd64"
+
+      - name: Generate checksum
+        run: |
+          sha256sum "caddy-${{ steps.version.outputs.tag }}-linux-amd64" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: caddy-${{ steps.version.outputs.tag }}-linux-amd64
+          path: |
+            caddy-${{ steps.version.outputs.tag }}-linux-amd64
+            SHA256SUMS
+          if-no-files-found: error
+
+      - name: Generate Changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          # Pinned so a new git-cliff release cannot break the Tera template
+          # unexpectedly; bump deliberately alongside cliff.toml changes.
+          version: v2.6.1
+          # Unreleased commits (since the previous tag) only; the new tag does
+          # not exist yet, so plain invocation would re-emit every past release.
+          args: --unreleased --tag ${{ steps.version.outputs.tag }}
+        id: git-cliff
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --notes "${{ steps.git-cliff.outputs.content }}" \
+            "caddy-${{ steps.version.outputs.tag }}-linux-amd64" \
+            SHA256SUMS

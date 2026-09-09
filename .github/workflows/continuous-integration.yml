@@ -5,8 +5,6 @@ on:
     branches:
       - main
       - master
-    tags:
-      - 'v*'
   pull_request:
     branches:
       - main
@@ -125,54 +123,5 @@ jobs:
       - name: Check Caddy build
         run: ./caddy version
 
-  release:
-    name: Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - test
-      - build
-      - xcaddy
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out tagged commit
-        uses: actions/checkout@v4
-
-      - name: Download Go module files
-        uses: actions/download-artifact@v4
-        with:
-          name: go-module-files
-          path: .
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install xcaddy
-        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-
-      - name: Build Caddy
-        run: |
-          "$(go env GOPATH)/bin/xcaddy" build \
-            --with github.com/SodaWithoutSparkles/caddy-http-acme=.
-
-      - name: Rename binary
-        run: mv caddy "caddy-${GITHUB_REF_NAME}-linux-amd64"
-
-      - name: Generate checksum
-        run: |
-          sha256sum "caddy-${GITHUB_REF_NAME}-linux-amd64" > SHA256SUMS
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            "caddy-${GITHUB_REF_NAME}-linux-amd64" \
-            SHA256SUMS
+  # Release lives in release.yml: a push to main that changes version.txt
+  # triggers a tagged release build.

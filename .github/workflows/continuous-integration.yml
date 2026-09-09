@@ -6,7 +6,7 @@ on:
       - main
       - master
     tags:
-      - '*'
+      - 'v*'
   pull_request:
     branches:
       - main
@@ -17,8 +17,9 @@ permissions:
 
 jobs:
   generate-checksums:
-    name: Generate Go checksums
+    name: Generate Go module files
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -29,32 +30,34 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Generate go.sum
+      - name: Generate go.mod and go.sum
         run: |
           go mod tidy
+          test -s go.mod
           test -s go.sum
 
-      - name: Upload go.sum and go.mod
+      - name: Upload Go module files
         uses: actions/upload-artifact@v4
         with:
-          name: generated-go-sum
+          name: go-module-files
           path: |
-            go.sum
             go.mod
+            go.sum
           if-no-files-found: error
 
   test:
     name: Test
     needs: generate-checksums
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download generated checksums
+      - name: Download Go module files
         uses: actions/download-artifact@v4
         with:
-          name: generated-go-sum
+          name: go-module-files
           path: .
 
       - name: Set up Go
@@ -70,14 +73,15 @@ jobs:
     name: Build
     needs: generate-checksums
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download generated checksums
+      - name: Download Go module files
         uses: actions/download-artifact@v4
         with:
-          name: generated-go-sum
+          name: go-module-files
           path: .
 
       - name: Set up Go
@@ -93,14 +97,15 @@ jobs:
     name: Build with xcaddy
     needs: generate-checksums
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download generated checksums
+      - name: Download Go module files
         uses: actions/download-artifact@v4
         with:
-          name: generated-go-sum
+          name: go-module-files
           path: .
 
       - name: Set up Go
@@ -112,10 +117,62 @@ jobs:
       - name: Install xcaddy
         run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-      - name: Build latest Caddy with provider
+      - name: Build Caddy with provider
         run: |
           "$(go env GOPATH)/bin/xcaddy" build \
             --with github.com/SodaWithoutSparkles/caddy-http-acme=.
 
       - name: Check Caddy build
         run: ./caddy version
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - test
+      - build
+      - xcaddy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+
+      - name: Download Go module files
+        uses: actions/download-artifact@v4
+        with:
+          name: go-module-files
+          path: .
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy
+        run: |
+          "$(go env GOPATH)/bin/xcaddy" build \
+            --with github.com/SodaWithoutSparkles/caddy-http-acme=.
+
+      - name: Rename binary
+        run: mv caddy "caddy-${GITHUB_REF_NAME}-linux-amd64"
+
+      - name: Generate checksum
+        run: |
+          sha256sum "caddy-${GITHUB_REF_NAME}-linux-amd64" > SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            "caddy-${GITHUB_REF_NAME}-linux-amd64" \
+            SHA256SUMS

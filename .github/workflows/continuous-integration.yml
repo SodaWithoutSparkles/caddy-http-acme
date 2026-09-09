@@ -115,7 +115,7 @@ jobs:
       - name: Build latest Caddy with provider
         run: |
           "$(go env GOPATH)/bin/xcaddy" build \
-            --with github.com/SodaWithoutSparkles/caddy-dns-http-acme=.
+            --with github.com/SodaWithoutSparkles/caddy-http-acme=.
 
       - name: Check Caddy build
         run: ./caddy version

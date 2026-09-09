@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )
 
@@ -167,5 +168,53 @@ func TestCaddyfile(t *testing.T) {
 	}
 	if p.Result == nil || p.Result.SuccessCode != "200" || p.Result.SuccessBody != "OK" {
 		t.Fatalf("unexpected result config: %#v", p.Result)
+	}
+}
+
+// Regression test: Provision() must resolve Caddy's own placeholders but leave
+// the runtime placeholders for Present() to expand. ReplaceAll() previously
+// turned {challenge} into an empty string during Provision, so myaddr.tools
+// received {"acme_challenge": ""} and answered:
+// 400 must specify either "ip" or "acme_challenge".
+func TestProvisionKeepsRuntimePlaceholdersForPresent(t *testing.T) {
+	t.Setenv("HTTP_ACME_TEST_KEY", "secret")
+
+	got := make(chan map[string]string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		got <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := &Provider{
+		Endpoint: srv.URL,
+		Method:   "POST",
+		Body:     "json",
+		Params: map[string]string{
+			"key":            "{env.HTTP_ACME_TEST_KEY}",
+			"acme_challenge": "{challenge}",
+		},
+	}
+	if err := p.Provision(caddy.Context{Context: context.Background()}); err != nil {
+		t.Fatal(err)
+	}
+	if p.Params["key"] != "secret" {
+		t.Fatalf("env placeholder not resolved: %#v", p.Params)
+	}
+	if p.Params["acme_challenge"] != "{challenge}" {
+		t.Fatalf("Provision consumed the runtime placeholder: %#v", p.Params)
+	}
+
+	p.client = srv.Client()
+	if err := p.Present(context.Background(), "donuts.myaddr.tools", "txt-value"); err != nil {
+		t.Fatal(err)
+	}
+	body := <-got
+	if body["key"] != "secret" || body["acme_challenge"] != "txt-value" {
+		t.Fatalf("unexpected body: %#v", body)
 	}
 }

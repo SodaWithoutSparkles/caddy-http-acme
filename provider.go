@@ -92,12 +92,14 @@ func (p *Provider) Provision(ctx caddy.Context) error {
 		return err
 	}
 
-	// Resolve normal Caddy placeholders now (e.g. {$MYADDR_KEY}) while leaving
-	// our runtime placeholders such as {challenge} for Present().
+	// Resolve normal Caddy placeholders now (e.g. {env.MYADDR_KEY}) while leaving
+	// our runtime placeholders such as {challenge} for Present(). ReplaceAll must
+	// not be used here: it wipes unknown placeholders, which would turn
+	// {challenge} into an empty string before Present() can expand it.
 	repl := caddy.NewReplacer()
-	p.Endpoint = repl.ReplaceAll(p.Endpoint, "")
+	p.Endpoint = repl.ReplaceKnown(p.Endpoint, "")
 	for k, v := range p.Params {
-		p.Params[k] = repl.ReplaceAll(v, "")
+		p.Params[k] = repl.ReplaceKnown(v, "")
 	}
 
 	timeout := 30 * time.Second

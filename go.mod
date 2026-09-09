@@ -1,4 +1,4 @@
-module github.com/example/caddy-dns-http-acme
+module github.com/SodaWithoutSparkles/caddy-dns-http-acme
 
 go 1.24
 

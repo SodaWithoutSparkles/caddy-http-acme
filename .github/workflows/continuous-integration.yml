@@ -34,11 +34,13 @@ jobs:
           go mod tidy
           test -s go.sum
 
-      - name: Upload generated checksums
+      - name: Upload go.sum and go.mod
         uses: actions/upload-artifact@v4
         with:
           name: generated-go-sum
-          path: go.sum
+          path: |
+            go.sum
+            go.mod
           if-no-files-found: error
 
   test:
@@ -113,7 +115,7 @@ jobs:
       - name: Build latest Caddy with provider
         run: |
           "$(go env GOPATH)/bin/xcaddy" build \
-            --with github.com/example/caddy-dns-http-acme=.
+            --with github.com/SodaWithoutSparkles/caddy-dns-http-acme=.
 
       - name: Check Caddy build
         run: ./caddy version

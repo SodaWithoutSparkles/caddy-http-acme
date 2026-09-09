@@ -18,7 +18,7 @@ yourname.myaddr.tools {
             body json
 
             params {
-                key {$MYADDR_KEY}
+                key {env.MYADDR_KEY}
                 acme_challenge {challenge}
             }
             

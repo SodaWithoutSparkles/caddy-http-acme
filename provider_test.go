@@ -144,7 +144,7 @@ func TestCaddyfile(t *testing.T) {
         method POST
         body json
         params {
-            key {$MYADDR_KEY}
+            key {env.MYADDR_KEY}
             acme_challenge {challenge}
         }
 		result {

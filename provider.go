@@ -142,10 +142,11 @@ func (p *Provider) Present(ctx context.Context, domain, challengeValue string) e
 // The PoC expects one or more TXT records and publishes each challenge in turn.
 func (p *Provider) AppendRecords(ctx context.Context, zone string, records []libdns.Record) ([]libdns.Record, error) {
 	for _, record := range records {
-		if !strings.EqualFold(record.Type, "TXT") {
+		rr := record.RR()
+		if !strings.EqualFold(rr.Type, "TXT") {
 			continue
 		}
-		if err := p.Present(ctx, zone, record.Value); err != nil {
+		if err := p.Present(ctx, zone, rr.Data); err != nil {
 			return nil, err
 		}
 	}
@@ -333,7 +334,7 @@ func (p *Provider) responseMatches(status int, body []byte) bool {
 		expectedCode = "2xx"
 	}
 
-	codeMatches := expectedCode == "2xx"
+	codeMatches := expectedCode == "2xx" && status >= http.StatusOK && status < http.StatusMultipleChoices
 	if !codeMatches {
 		expectedStatus, err := strconv.Atoi(expectedCode)
 		codeMatches = err == nil && status == expectedStatus

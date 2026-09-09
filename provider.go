@@ -257,9 +257,6 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				p.Timeout = caddy.Duration(timeout)
 			case "params":
 				for nesting := d.Nesting(); d.NextBlock(nesting); {
-					if !d.NextArg() {
-						return d.ArgErr()
-					}
 					key := d.Val()
 					if !d.NextArg() {
 						return d.ArgErr()

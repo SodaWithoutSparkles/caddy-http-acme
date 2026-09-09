@@ -16,12 +16,44 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  generate-checksums:
+    name: Generate Go checksums
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Generate go.sum
+        run: |
+          go mod download
+          test -s go.sum
+
+      - name: Upload generated checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-go-sum
+          path: go.sum
+          if-no-files-found: error
+
+  test:
+    name: Test
+    needs: generate-checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download generated checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-go-sum
+          path: .
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -30,14 +62,21 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test ./...
+        run: go test -mod=readonly ./...
 
   build:
     name: Build
+    needs: generate-checksums
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Download generated checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-go-sum
+          path: .
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -46,14 +85,21 @@ jobs:
           cache: true
 
       - name: Build
-        run: go build ./...
+        run: go build -mod=readonly ./...
 
   xcaddy:
     name: Build with xcaddy
+    needs: generate-checksums
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Download generated checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-go-sum
+          path: .
 
       - name: Set up Go
         uses: actions/setup-go@v5

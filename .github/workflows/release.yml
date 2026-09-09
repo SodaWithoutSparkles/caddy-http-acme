@@ -97,23 +97,21 @@ jobs:
             SHA256SUMS
           if-no-files-found: error
 
+      - name: Install git-cliff
+        uses: taiki-e/install-action@git-cliff
+
       - name: Generate Changelog
-        uses: orhun/git-cliff-action@v3
-        with:
-          config: cliff.toml
-          # Pinned so a new git-cliff release cannot break the Tera template
-          # unexpectedly; bump deliberately alongside cliff.toml changes.
-          version: v2.6.1
-          # Unreleased commits (since the previous tag) only; the new tag does
-          # not exist yet, so plain invocation would re-emit every past release.
-          args: --unreleased --tag ${{ steps.version.outputs.tag }}
-        id: git-cliff
+        run: |
+          git-cliff \
+            --config cliff.toml \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --output CHANGELOG.md
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
-            --notes "${{ steps.git-cliff.outputs.content }}" \
+            --notes-file CHANGELOG.md \
             "caddy-${{ steps.version.outputs.tag }}-linux-amd64" \
             SHA256SUMS

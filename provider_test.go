@@ -318,7 +318,9 @@ func TestResultBodyRegex(t *testing.T) {
 				Body:     "form",
 				Params:   map[string]string{"key": "secret"},
 				Result:   &ResultConfig{SuccessBody: `accepted id=\d+`, SuccessBodyRegex: true},
-				client:   srv.Client(),
+			}
+			if err := p.Provision(caddy.Context{Context: context.Background()}); err != nil {
+				t.Fatal(err)
 			}
 
 			if err := p.Present(context.Background(), "example.com", "_acme-challenge.example.com", "challenge"); (err != nil) != tt.wantErr {

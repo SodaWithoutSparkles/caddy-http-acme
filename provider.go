@@ -196,10 +196,10 @@ func (p *Provider) CleanUp(ctx context.Context, domain, token string) error {
 	return nil
 }
 
-func (p *Provider) buildRequest(ctx context.Context, params map[string]string) (*http.Request, error) {
+func (p *Provider) buildRequest(ctx context.Context, endpoint string, params map[string]string) (*http.Request, error) {
 	switch p.Body {
 	case "query":
-		u, err := url.Parse(p.Endpoint)
+		u, err := url.Parse(endpoint)
 		if err != nil {
 			return nil, fmt.Errorf("http_acme: invalid endpoint: %w", err)
 		}
@@ -215,7 +215,7 @@ func (p *Provider) buildRequest(ctx context.Context, params map[string]string) (
 		for k, v := range params {
 			values.Set(k, v)
 		}
-		req, err := http.NewRequestWithContext(ctx, p.Method, p.Endpoint, strings.NewReader(values.Encode()))
+		req, err := http.NewRequestWithContext(ctx, p.Method, endpoint, strings.NewReader(values.Encode()))
 		if err != nil {
 			return nil, fmt.Errorf("http_acme: creating request: %w", err)
 		}
@@ -228,7 +228,7 @@ func (p *Provider) buildRequest(ctx context.Context, params map[string]string) (
 		if err != nil {
 			return nil, fmt.Errorf("http_acme: encoding JSON: %w", err)
 		}
-		req, err := http.NewRequestWithContext(ctx, p.Method, p.Endpoint, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, p.Method, endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("http_acme: creating request: %w", err)
 		}
@@ -236,9 +236,9 @@ func (p *Provider) buildRequest(ctx context.Context, params map[string]string) (
 		req.Header.Set("Accept", "application/json, text/plain, */*")
 		return req, nil
 
-	defaomain}", domain,
-	)
-	return r.Replace(value)
+	default:
+		return nil, fmt.Errorf("http_acme: unsupported body mode %q", p.Body)
+	}
 }
 
 func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -358,6 +358,15 @@ func (p *Provider) responseMatches(status int, body []byte) bool {
 		expectedCode = strings.ToLower(strings.TrimSpace(p.Result.SuccessCode))
 		expectedBody = p.Result.SuccessBody
 	}
+	if expectedCode == "" {
+		expectedCode = "2xx"
+	}
+
+	codeMatches := expectedCode == "2xx" && status >= http.StatusOK && status < http.StatusMultipleChoices
+	if !codeMatches {
+		expectedStatus, err := strconv.Atoi(expectedCode)
+		codeMatches = err == nil && status == expectedStatus
+	}
 	if !codeMatches {
 		return false
 	}
@@ -367,19 +376,7 @@ func (p *Provider) responseMatches(status int, body []byte) bool {
 	if p.resultBodyRe != nil {
 		return p.resultBodyRe.Match(body)
 	}
-	return strings.Contains(string(body), expectedBody
-		expectedCode = "2xx"
-	}
-
-	codeMatches := expectedCode == "2xx" && status >= http.StatusOK && status < http.StatusMultipleChoices
-	if !codeMatches {
-	if p.resultBodyRe != nil {
-		return fmt.Sprintf("status %s and body matching /%s/", code, body)
-	}
-		expectedStatus, err := strconv.Atoi(expectedCode)
-		codeMatches = err == nil && status == expectedStatus
-	}
-	return codeMatches && (expectedBody == "" || strings.Contains(string(body), expectedBody))
+	return strings.Contains(string(body), expectedBody)
 }
 
 func (p *Provider) expectedResult() string {
@@ -393,6 +390,9 @@ func (p *Provider) expectedResult() string {
 	}
 	if body == "" {
 		return fmt.Sprintf("status %s", code)
+	}
+	if p.resultBodyRe != nil {
+		return fmt.Sprintf("status %s and body matching /%s/", code, body)
 	}
 	return fmt.Sprintf("status %s and body containing %q", code, body)
 }

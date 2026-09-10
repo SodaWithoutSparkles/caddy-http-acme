@@ -18,7 +18,7 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// Provider lets caddy publish ACME TXT records through an HTTP endpoint for e.g. myaddr.tools.
+// Provider lets caddy publish ACME TXT records through an HTTP endpoint for services like myaddr.tools.
 // It provides a generic HTTP client that can be configured to send requests with 
 // query parameters, form data, or JSON payloads. 
 type Provider struct {

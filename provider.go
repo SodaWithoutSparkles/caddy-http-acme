@@ -18,17 +18,27 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// Provider is a deliberately small ACME DNS-01 adapter which turns a libdns
-// record append into a configurable HTTP request.
-//
-// It is intended for services such as myaddr.tools which expose an HTTP API
-// specifically for publishing the current ACME TXT value.
+// Provider lets caddy publish ACME TXT records through an HTTP endpoint for e.g. myaddr.tools.
+// It provides a generic HTTP client that can be configured to send requests with 
+// query parameters, form data, or JSON payloads. 
 type Provider struct {
+	// The HTTP endpoint to which the ACME challenge will be sent.
 	Endpoint string            `json:"endpoint,omitempty"`
+
+	// One of GET, POST, or PUT. Defaults to POST.
 	Method   string            `json:"method,omitempty"`
-	Body     string            `json:"body,omitempty"` // query, form, json
+
+	// Optional. One of query, form, or json. Defaults to `form` for POST/PUT and `query` for GET.
+	Body     string            `json:"body,omitempty"`
+
+	// map of key-value pairs to send as query parameters, form data, or JSON payload. 
+	// The values may contain placeholders {http_acme.challenge}, {http_acme.zone}, and {http_acme.fqdn} which will be replaced at runtime.
 	Params   map[string]string `json:"params,omitempty"`
+
+	// Optional. Timeout for the HTTP request. Defaults to 30s.
 	Timeout  caddy.Duration    `json:"timeout,omitempty"`
+
+	// Optional. Configuration for validating the response.
 	Result   *ResultConfig     `json:"result,omitempty"`
 
 	client       *http.Client
@@ -38,8 +48,13 @@ type Provider struct {
 // ResultConfig defines the response conditions that indicate a successful
 // request. All configured conditions must match.
 type ResultConfig struct {
+	// Expected HTTP status code. Can be a specific code (e.g. 200) or a range (e.g. 2xx). Defaults to 2xx.
 	SuccessCode string `json:"success_code,omitempty"`
+
+	// Expected response body (or regex when SuccessBodyRegex is true).
+	// If configured, the response body must contain this string (or match the regex) for the request to be considered successful.
 	SuccessBody string `json:"success_body,omitempty"`
+	
 	// SuccessBodyRegex treats SuccessBody as a regular expression instead of a
 	// substring. The pattern is compiled during Provision.
 	SuccessBodyRegex bool `json:"success_body_regex,omitempty"`

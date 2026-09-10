@@ -1,0 +1,31 @@
+# Example Caddyfile for the caddy-http-acme plugin
+
+*.yourname.myaddr.tools {
+        root * /usr/share/caddy
+        encode zstd gzip
+
+        tls {
+                dns http_acme {
+                        endpoint https://myaddr.tools/update
+                        method POST
+                        body json
+
+                        params {
+                                key {env.MYADDR_KEY} # Set MYADDR_KEY=... in your environment
+                                acme_challenge {http_acme.challenge}
+                        }
+
+                        result {
+                                success_code "2xx"
+                                success_body "OK"
+                        }
+                }
+        }
+        @www host www.yourname.myaddr.tools
+        handle @www {
+                # Your site configuration goes here.
+                respond "Hello, world!"
+        }
+
+        respond "Not found" 404
+}

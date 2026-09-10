@@ -68,3 +68,16 @@ value.
 
 ## Supported services
 - [myaddr.tools](https://myaddr.tools)
+
+## Installation
+
+Install from [caddyserver.com](https://caddyserver.com/download?package=github.com%2FSodaWithoutSparkles%2Fcaddy-http-acme) with `caddy-http-acme` module selected.
+
+Or alternatively, build Caddy with the module using `xcaddy`:
+
+```bash
+xcaddy build --with github.com/SodaWithoutSparkles/caddy-http-acme@latest
+```
+
+## License
+This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.

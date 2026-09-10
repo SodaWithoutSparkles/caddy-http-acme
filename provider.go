@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +31,8 @@ type Provider struct {
 	Timeout  caddy.Duration    `json:"timeout,omitempty"`
 	Result   *ResultConfig     `json:"result,omitempty"`
 
-	client *http.Client
+	client       *http.Client
+	resultBodyRe *regexp.Regexp
 }
 
 // ResultConfig defines the response conditions that indicate a successful
@@ -38,6 +40,9 @@ type Provider struct {
 type ResultConfig struct {
 	SuccessCode string `json:"success_code,omitempty"`
 	SuccessBody string `json:"success_body,omitempty"`
+	// SuccessBodyRegex treats SuccessBody as a regular expression instead of a
+	// substring. The pattern is compiled during Provision.
+	SuccessBodyRegex bool `json:"success_body_regex,omitempty"`
 }
 
 func init() {
@@ -87,6 +92,15 @@ func (p *Provider) Provision(ctx caddy.Context) error {
 		p.Result = &ResultConfig{}
 	}
 	var err error
+	if p.Result.SuccessBodyRegex {
+		if p.Result.SuccessBody == "" {
+			return fmt.Errorf("success_body_regex requires success_body")
+		}
+		p.resultBodyRe, err = regexp.Compile(p.Result.SuccessBody)
+		if err != nil {
+			return fmt.Errorf("invalid success_body regex %q: %w", p.Result.SuccessBody, err)
+		}
+	}
 	p.Result.SuccessCode, err = normalizeSuccessCode(p.Result.SuccessCode)
 	if err != nil {
 		return err
@@ -296,6 +310,15 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						p.Result.SuccessBody = d.Val()
+					case "success_body_regex":
+						if !d.NextArg() || d.NextArg() {
+							return d.ArgErr()
+						}
+						v, err := strconv.ParseBool(d.Val())
+						if err != nil {
+							return d.Errf("invalid success_body_regex %q: use true or false", d.Val())
+						}
+						p.Result.SuccessBodyRegex = v
 					default:
 						return d.Errf("unrecognized result option %q", d.Val())
 					}
@@ -335,12 +358,24 @@ func (p *Provider) responseMatches(status int, body []byte) bool {
 		expectedCode = strings.ToLower(strings.TrimSpace(p.Result.SuccessCode))
 		expectedBody = p.Result.SuccessBody
 	}
-	if expectedCode == "" {
+	if !codeMatches {
+		return false
+	}
+	if expectedBody == "" {
+		return true
+	}
+	if p.resultBodyRe != nil {
+		return p.resultBodyRe.Match(body)
+	}
+	return strings.Contains(string(body), expectedBody
 		expectedCode = "2xx"
 	}
 
 	codeMatches := expectedCode == "2xx" && status >= http.StatusOK && status < http.StatusMultipleChoices
 	if !codeMatches {
+	if p.resultBodyRe != nil {
+		return fmt.Sprintf("status %s and body matching /%s/", code, body)
+	}
 		expectedStatus, err := strconv.Atoi(expectedCode)
 		codeMatches = err == nil && status == expectedStatus
 	}

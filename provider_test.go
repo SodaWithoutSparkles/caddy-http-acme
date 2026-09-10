@@ -154,6 +154,7 @@ func TestCaddyfile(t *testing.T) {
 		result {
 			success_code 200
 			success_body "OK"
+			success_body_regex true
 		}
     }`
 
@@ -169,7 +170,7 @@ func TestCaddyfile(t *testing.T) {
 	if p.Params["acme_challenge"] != "{http_acme.challenge}" {
 		t.Fatalf("unexpected challenge param: %#v", p.Params)
 	}
-	if p.Result == nil || p.Result.SuccessCode != "200" || p.Result.SuccessBody != "OK" {
+	if p.Result == nil || p.Result.SuccessCode != "200" || p.Result.SuccessBody != "OK" || !p.Result.SuccessBodyRegex {
 		t.Fatalf("unexpected result config: %#v", p.Result)
 	}
 }
@@ -291,5 +292,64 @@ func TestUnknownAndLegacyPlaceholdersStayLiteral(t *testing.T) {
 	body := <-got
 	if body["legacy"] != "{challenge}" || body["unknown"] != "{http_acme.typo}" {
 		t.Fatalf("unknown placeholders must stay literal, got: %#v", body)
+	}
+}
+
+func TestResultBodyRegex(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+	}{
+		{name: "regex matches", body: "accepted id=123", wantErr: false},
+		{name: "regex does not match", body: "rejected", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			p := &Provider{
+				Endpoint: srv.URL,
+				Method:   http.MethodPost,
+				Body:     "form",
+				Params:   map[string]string{"key": "secret"},
+				Result:   &ResultConfig{SuccessBody: `accepted id=\d+`, SuccessBodyRegex: true},
+				client:   srv.Client(),
+			}
+
+			if err := p.Present(context.Background(), "example.com", "_acme-challenge.example.com", "challenge"); (err != nil) != tt.wantErr {
+				t.Fatalf("Present() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResultBodyRegexProvision(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  ResultConfig
+		wantErr bool
+	}{
+		{name: "valid regex", result: ResultConfig{SuccessBody: `^ok$`, SuccessBodyRegex: true}},
+		{name: "invalid regex", result: ResultConfig{SuccessBody: `(`, SuccessBodyRegex: true}, wantErr: true},
+		{name: "regex without body", result: ResultConfig{SuccessBodyRegex: true}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{
+				Endpoint: "https://example.com",
+				Params:   map[string]string{"key": "secret"},
+				Result:   &tt.result,
+			}
+			err := p.Provision(caddy.Context{Context: context.Background()})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Provision() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

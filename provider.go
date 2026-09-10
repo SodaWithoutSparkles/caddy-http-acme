@@ -93,9 +93,10 @@ func (p *Provider) Provision(ctx caddy.Context) error {
 	}
 
 	// Resolve normal Caddy placeholders now (e.g. {env.MYADDR_KEY}) while leaving
-	// our runtime placeholders such as {challenge} for Present(). ReplaceAll must
-	// not be used here: it wipes unknown placeholders, which would turn
-	// {challenge} into an empty string before Present() can expand it.
+	// the runtime placeholders {http_acme.challenge}, {http_acme.zone}, and
+	// {http_acme.fqdn} for Present(), where their values are known. ReplaceAll
+	// must not be used here: it wipes unknown placeholders, which would turn
+	// {http_acme.challenge} into an empty string before Present() can expand it.
 	repl := caddy.NewReplacer()
 	p.Endpoint = repl.ReplaceKnown(p.Endpoint, "")
 	for k, v := range p.Params {
@@ -111,13 +112,21 @@ func (p *Provider) Provision(ctx caddy.Context) error {
 }
 
 // Present publishes the ACME TXT value through the configured HTTP endpoint.
-func (p *Provider) Present(ctx context.Context, domain, challengeValue string) error {
+// zone is the challenged zone and fqdn is the fully qualified record name, for
+// example "_acme-challenge.example.com". Both are available to the
+// configuration as {http_acme.zone} and {http_acme.fqdn}.
+func (p *Provider) Present(ctx context.Context, zone, fqdn, challengeValue string) error {
+	repl := caddy.NewReplacer()
+	repl.Set("http_acme.challenge", challengeValue)
+	repl.Set("http_acme.zone", zone)
+	repl.Set("http_acme.fqdn", fqdn)
+
 	params := make(map[string]string, len(p.Params))
 	for k, v := range p.Params {
-		params[k] = expandRuntime(v, domain, challengeValue)
+		params[k] = repl.ReplaceKnown(v, "")
 	}
 
-	req, err := p.buildRequest(ctx, params)
+	req, err := p.buildRequest(ctx, repl.ReplaceKnown(p.Endpoint, ""), params)
 	if err != nil {
 		return err
 	}
@@ -148,7 +157,12 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, records []lib
 		if !strings.EqualFold(rr.Type, "TXT") {
 			continue
 		}
-		if err := p.Present(ctx, zone, rr.Data); err != nil {
+		// The zone may carry a trailing dot; strip it because HTTP APIs expect
+		// bare names. AbsoluteName resolves the record name against the zone,
+		// e.g. "_acme-challenge" in "example.com." becomes
+		// "_acme-challenge.example.com.".
+		fqdn := strings.TrimSuffix(libdns.AbsoluteName(rr.Name, zone), ".")
+		if err := p.Present(ctx, strings.TrimSuffix(zone, "."), fqdn, rr.Data); err != nil {
 			return nil, err
 		}
 	}
@@ -208,15 +222,7 @@ func (p *Provider) buildRequest(ctx context.Context, params map[string]string) (
 		req.Header.Set("Accept", "application/json, text/plain, */*")
 		return req, nil
 
-	default:
-		return nil, fmt.Errorf("http_acme: unsupported body mode %q", p.Body)
-	}
-}
-
-func expandRuntime(value, domain, challengeValue string) string {
-	r := strings.NewReplacer(
-		"{challenge}", challengeValue,
-		"{domain}", domain,
+	defaomain}", domain,
 	)
 	return r.Replace(value)
 }

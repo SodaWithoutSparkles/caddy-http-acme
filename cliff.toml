@@ -28,4 +28,6 @@ commit_parsers = [
   { message = ".*", group = "⚙️ Other Changes" },
 ]
 filter_commits = false
-tag_pattern = "v[0-9].*"
+# Anchored: git-cliff matches unanchored, so "v[0-9].*" would also treat
+# stray tags like "v-backup" as releases.
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'

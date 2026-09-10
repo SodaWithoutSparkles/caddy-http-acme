@@ -101,11 +101,69 @@ jobs:
         uses: taiki-e/install-action@git-cliff
 
       - name: Generate Changelog
+        env:
+          CURRENT_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git-cliff \
-            --config cliff.toml \
-            --tag "${{ steps.version.outputs.tag }}" \
-            --output CHANGELOG.md
+          set -euo pipefail
+
+          # Must stay in sync with tag_pattern in cliff.toml.
+          release_tag='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'
+
+          if [[ ! "$CURRENT_TAG" =~ $release_tag ]]; then
+            echo "::error::version.txt tag '$CURRENT_TAG' does not match $release_tag"
+            exit 1
+          fi
+
+          # Prereleases get the delta from the previous prerelease, stable
+          # releases from the previous stable release. Two independent streams.
+          if [[ "$CURRENT_TAG" == *-* ]]; then
+            want_pre=true
+          else
+            want_pre=false
+          fi
+
+          previous=""
+          while IFS= read -r tag; do
+            if [[ ! "$tag" =~ $release_tag ]]; then
+              continue
+            fi
+            if [ "$tag" = "$CURRENT_TAG" ]; then
+              continue
+            fi
+            if ! git merge-base --is-ancestor "$tag" HEAD; then
+              continue
+            fi
+            if [[ "$tag" == *-* ]]; then
+              is_pre=true
+            else
+              is_pre=false
+            fi
+            if [ "$is_pre" = "$want_pre" ]; then
+              # A same-class tag that is newer than the version being released
+              # means version.txt went backwards.
+              if [ "$(printf '%s\n%s\n' "$CURRENT_TAG" "$tag" | sort -V | tail -n1)" = "$tag" ]; then
+                echo "::error::tag $tag is newer than $CURRENT_TAG; is version.txt correct?"
+                exit 1
+              fi
+              previous="$tag"
+              break
+            fi
+          done < <(git tag --list --sort=-v:refname)
+
+          if [ -n "$previous" ]; then
+            echo "Changelog range: $previous..HEAD"
+            git-cliff \
+              --config cliff.toml \
+              "$previous..HEAD" \
+              --tag "$CURRENT_TAG" \
+              --output CHANGELOG.md
+          else
+            echo "No previous tag in this release class; using full history"
+            git-cliff \
+              --config cliff.toml \
+              --tag "$CURRENT_TAG" \
+              --output CHANGELOG.md
+          fi
 
       - name: Create GitHub Release
         env:
